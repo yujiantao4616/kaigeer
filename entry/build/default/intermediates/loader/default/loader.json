@@ -1,0 +1,28 @@
+{
+  "modulePathMap": {
+    "entry": "/Users/yujiantao/DevEcoStudioProjects/bang/entry"
+  },
+  "compileMode": "esmodule",
+  "projectRootPath": "/Users/yujiantao/DevEcoStudioProjects/bang",
+  "nodeModulesPath": "/Users/yujiantao/DevEcoStudioProjects/bang/entry/build/default/intermediates/loader_out/default/node_modules",
+  "byteCodeHarInfo": {},
+  "declarationEntry": [],
+  "moduleName": "entry",
+  "hspNameOhmMap": {},
+  "harNameOhmMap": {},
+  "packageManagerType": "ohpm",
+  "compileEntry": [
+    "/Users/yujiantao/DevEcoStudioProjects/bang/entry/build/default/generated/r/default/ResourceTable.ts"
+  ],
+  "otherCompileFiles": [],
+  "dynamicImportLibInfo": {},
+  "routerMap": [],
+  "hspResourcesMap": {},
+  "updateVersionInfo": {},
+  "customizedHar": false,
+  "anBuildOutPut": "/Users/yujiantao/DevEcoStudioProjects/bang/entry/build/default/intermediates/loader_out/default/an/arm64-v8a",
+  "anBuildMode": "type",
+  "patchConfig": {
+    "changedFileList": "/Users/yujiantao/DevEcoStudioProjects/bang/entry/build/default/intermediates/patch/default/changedFileList.json"
+  }
+}

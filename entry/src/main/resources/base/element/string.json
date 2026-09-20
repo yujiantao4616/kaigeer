@@ -1,0 +1,20 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "凯格尔训练模块"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "凯格尔训练"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "凯格尔训练"
+    },
+    {
+      "name": "distributed_data_reason",
+      "value": "用于在手机与穿戴设备之间同步训练计划和打卡记录"
+    }
+  ]
+}
