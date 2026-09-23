@@ -1,4 +1,5 @@
 import { TrainingPhase } from '../../model/AppModel';
+import { CircleShape } from '@kit.ArkUI';
 
 /** Watch-only training surface. All state transitions are supplied by the
  * parent so the phone and wearable use the same training clock and records. */
@@ -8,8 +9,6 @@ export struct WearableTrainView {
   @Prop remaining: number = 0;
   @Prop repetition: number = 0;
   @Prop repetitions: number = 10;
-  @Prop finishedSets: number = 0;
-  @Prop setsPerDay: number = 3;
   @Prop paused: boolean = false;
   @Prop countdownScale: number = 1;
   @Prop breathingScale: number = 1;
@@ -27,8 +26,7 @@ export struct WearableTrainView {
   @Prop completeLabel: string = 'Set complete';
   @Prop secondsLabel: string = 'sec';
   @Prop confirmStopLabel: string = 'End session';
-  @Prop homeLabel: string = "Today's practice";
-  @Prop startLabel: string = 'Start training';
+  @Prop finishLabel: string = 'Done';
   @Prop locale: string = 'zh';
 
   onTogglePause: () => void = () => {};
@@ -49,67 +47,96 @@ export struct WearableTrainView {
   }
 
   build() {
-    Column() {
-      Stack({ alignContent: Alignment.Center }) {
+    // The status layout and the stop action live in separate layers. This
+    // keeps the ring/content geometry stable while the page-level action is
+    // placed in the lower safe area of the round screen.
+    Stack({ alignContent: Alignment.Center }) {
+      Column() {
         Stack({ alignContent: Alignment.Center }) {
-          Circle().width('98%').height('98%').fillOpacity(0).strokeWidth(2)
-            .stroke(this.primaryColor).strokeOpacity(0.18);
-          Progress({ value: this.progressPercent, total: 100, type: ProgressType.Ring })
-            .width('94%').height('94%').color(this.primaryColor)
-            .backgroundColor(this.ringTrackColor).style({ strokeWidth: 14 })
-            .animation({ duration: 220, curve: Curve.EaseInOut });
-          Circle().width('72%').height('72%').fill(this.accentColor);
-          Column({ space: 2 }) {
-            // Keep the paused state structurally identical to the active state:
-            // only the countdown value/label becomes a play affordance.
-            if (this.paused && this.phase !== 'complete') {
-              Image($rawfile('icons/play.svg')).width(56).height(56)
-                .objectFit(ImageFit.Contain).colorFilter(this.primaryFilter())
-                .onClick(() => this.onTogglePause());
-            } else {
-              Text(this.phase === 'complete' ? '✓' : `${this.remaining}`)
-                .fontSize(48).fontWeight(FontWeight.Bold).fontColor(this.textColor)
-                .scale({ x: this.countdownScale, y: this.countdownScale });
-              Text(this.phase === 'complete' ? this.completeLabel : this.secondsLabel)
-                .fontSize(11).fontColor(this.mutedColor);
+          Stack({ alignContent: Alignment.Center }) {
+            Circle().width('98%').height('98%').fillOpacity(0).strokeWidth(2)
+              .stroke(this.primaryColor).strokeOpacity(0.18);
+            Progress({ value: this.progressPercent, total: 100, type: ProgressType.Ring })
+              .width('94%').height('94%').color(this.primaryColor)
+              .backgroundColor(this.ringTrackColor).style({ strokeWidth: 14 })
+              .animation({ duration: 220, curve: Curve.EaseInOut });
+            Circle().width('72%').height('72%').fill(this.accentColor);
+            Column({ space: 2 }) {
+              // Keep the paused state structurally identical to the active state:
+              // only the countdown value/label becomes a play affordance.
+              if (this.paused && this.phase !== 'complete') {
+                Image($rawfile('icons/play.svg')).width(56).height(56)
+                  .objectFit(ImageFit.Contain).colorFilter(this.primaryFilter())
+                  .onClick(() => this.onTogglePause());
+              } else if (this.phase === 'complete') {
+                Text('✓').fontSize(48).fontWeight(FontWeight.Bold).fontColor(this.textColor)
+                  .scale({ x: this.countdownScale, y: this.countdownScale });
+                Text(this.completeLabel).fontSize(16).fontWeight(FontWeight.Medium)
+                  .fontColor(this.primaryColor);
+              } else {
+                Text(`${this.remaining}`)
+                  .fontSize(48).fontWeight(FontWeight.Bold).fontColor(this.textColor)
+                  .scale({ x: this.countdownScale, y: this.countdownScale });
+                Text(this.secondsLabel).fontSize(11).fontColor(this.mutedColor);
+              }
+              // The action cue remains visible while paused so the user knows
+              // exactly what will resume next.
+              if (this.phase !== 'complete') {
+                Text(this.phaseLabel).fontSize(16).fontWeight(FontWeight.Medium)
+                  .fontColor(this.primaryColor);
+              }
+              Text(`${this.repetition} / ${this.repetitions}`)
+                .fontSize(12).fontColor(this.mutedColor);
             }
-            // The action cue remains visible while paused so the user knows
-            // exactly what will resume next.
-            Text(this.phaseLabel).fontSize(16).fontWeight(FontWeight.Medium)
-              .fontColor(this.primaryColor);
-            Text(`${this.repetition} / ${this.repetitions}`)
-              .fontSize(12).fontColor(this.mutedColor);
           }
+            .width('100%').height('100%')
+            .scale({ x: this.breathingScale, y: this.breathingScale })
+            .offset({ x: this.breathingOffsetX, y: this.breathingOffsetY })
+            .animation({ duration: 120, curve: Curve.EaseInOut })
+            .gesture(TapGesture({ count: 1 }).onAction(() => {
+              if (this.phase !== 'complete') {
+                this.onTogglePause();
+              }
+            }));
         }
-          .width('100%').height('100%')
-          .scale({ x: this.breathingScale, y: this.breathingScale })
-          .offset({ x: this.breathingOffsetX, y: this.breathingOffsetY })
-          .animation({ duration: 120, curve: Curve.EaseInOut })
-          .gesture(TapGesture({ count: 1 }).onAction(() => {
-            if (this.phase !== 'complete') {
-              this.onTogglePause();
-            }
-          }));
-        if (this.paused && this.phase !== 'complete') {
-          // Keep the end action outside the animated content layer. This
-          // preserves the capsule/irregular shape while the ring breathes.
-          Button(this.confirmStopLabel, { type: ButtonType.Capsule })
-            .width('82%').height(40).fontSize(12)
-            .fontColor(this.onPrimaryColor).backgroundColor(this.primaryColor)
-            // Anchor the action to the outer, non-animated Stack. It stays
-            // flush with the bottom edge while the training ring breathes.
-            .align(Alignment.Bottom)
-            .zIndex(10)
-            .onClick(() => this.onEnd());
+          .layoutWeight(1).width('100%');
+      }.width('100%').height('100%');
+      if (this.paused && this.phase !== 'complete') {
+        Button({ type: ButtonType.Capsule }) {
+          Stack({ alignContent: Alignment.Center }) {
+            Text(this.confirmStopLabel)
+              .fontSize(14).fontWeight(FontWeight.Bold)
+              .fontColor(this.onPrimaryColor)
+              .textAlign(TextAlign.Center);
+          }
+            .width('100%').height('100%');
         }
-      }
-        .layoutWeight(1).width('100%');
-      if (this.phase === 'complete') {
-        Button(this.finishedSets >= this.setsPerDay ? this.homeLabel : this.startLabel, { type: ButtonType.Capsule })
-          .width('82%').height(40).fontSize(12)
+          .width('82%').height(58)
           .fontColor(this.onPrimaryColor).backgroundColor(this.primaryColor)
+          // Keep the CTA in the lower safe area. The circular root clips the
+          // lower edge just like a watch-native bottom action.
+          .position({ x: '9%', y: '80%' })
+          .zIndex(10)
+          .onClick(() => this.onEnd());
+      } else if (this.phase === 'complete') {
+        Button({ type: ButtonType.Capsule }) {
+          Stack({ alignContent: Alignment.Center }) {
+            Text(this.finishLabel)
+              .fontSize(14).fontWeight(FontWeight.Bold)
+              .fontColor(this.onPrimaryColor)
+              .textAlign(TextAlign.Center);
+          }
+            .width('100%').height('100%');
+        }
+          .width('82%').height(58)
+          .fontColor(this.onPrimaryColor).backgroundColor(this.primaryColor)
+          .position({ x: '9%', y: '80%' })
+          .zIndex(10)
           .onClick(() => this.onCompleteAction());
       }
-    }.width('100%').height('100%').backgroundColor(this.pageBackground);
+    }
+      .width('100%').height('100%')
+      .backgroundColor(this.pageBackground)
+      .clipShape(new CircleShape({ width: '100%', height: '100%' }));
   }
 }

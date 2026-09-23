@@ -1,9 +1,0 @@
-{
-  "version": "1.0.0",
-  "license": "Prototype assets generated through Google Translate TTS; verify redistribution rights before AppGallery release",
-  "cues": ["ready", "tighten", "relax", "breathe", "finish", "pause"],
-  "countdown": ["count-3", "count-2", "count-1"],
-  "languages": ["zh-CN", "en-US"],
-  "compactCues": ["compact-ready", "compact-tighten", "compact-relax", "compact-finish", "compact-pause"],
-  "note": "English full and compact cue MP3 files are bundled and played first through AVPlayer; Chinese and English fall back to HarmonyOS TTS when needed."
-}

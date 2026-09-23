@@ -189,6 +189,7 @@ function ui(key: string, locale: string): string {
   if (key === 'currentSet') { return locale === 'en' ? 'Current set' : '当前组'; }
   if (key === 'currentRep') { return locale === 'en' ? 'Current repetition' : '当前次数'; }
   if (key === 'start') { return locale === 'en' ? 'Start training' : '开始训练'; }
+  if (key === 'done') { return locale === 'en' ? 'Done' : '完成'; }
   if (key === 'sets') { return locale === 'en' ? 'Completed today' : '今日已完成'; }
   if (key === 'setUnit') { return locale === 'en' ? 'sets' : '组'; }
   if (key === 'target') { return locale === 'en' ? 'Goal' : '目标'; }
@@ -439,10 +440,10 @@ struct Index {
   // Keep the phone layout intact and switch to purpose-built compact views
   // when the app is running on a small wearable screen.
   @State wearableMode: boolean = false;
-  // Wearable home is a three-page horizontal pager: summary, start, and
-  // reminders. The watch is a compact companion, so it keeps only these
-  // glanceable surfaces instead of mirroring the phone tabs.
-  @State wearableTab: number = 1;
+  // Wearable navigation is a separate route from the phone's AppPage tabs.
+  // The watch owns its home pager; this route only switches between the
+  // watch home and its watch-native training surface.
+  @State wearableRoute: string = 'home';
   @State locale: string = 'zh';
   @State voiceLanguage: VoiceLanguage = 'zh-CN';
   @State themeColor: ThemeColor = 'teal';
@@ -512,7 +513,7 @@ struct Index {
     WearableSyncService.subscribe((payload: WearableSharedPayload): void => {
       // Keep an in-progress session stable. New plan/history data appears on
       // the next session while today's summary updates immediately.
-      if (this.page !== 'train') {
+      if (!this.isTrainingRoute()) {
         this.savedPlan = clonePlan(payload.plan);
         if (this.page !== 'plan') {
           this.plan = clonePlan(payload.plan);
@@ -554,7 +555,11 @@ struct Index {
     }
     const active: ActiveTraining | undefined = this.model.activeTraining;
     if (active !== undefined && active.active) {
-      this.page = 'train';
+      if (this.wearableMode) {
+        this.wearableRoute = 'train';
+      } else {
+        this.page = 'train';
+      }
       this.restoreSession(active);
       this.trainStartedAt = active.startedAt > 0 ? active.startedAt : Date.now();
       if (this.phase === 'complete') {
@@ -617,9 +622,11 @@ struct Index {
   private start(): void {
     console.info(`[TrainingTrace] start set=${Math.min(this.savedPlan.setsPerDay, this.today().completedSets + 1)}/${this.savedPlan.setsPerDay}, repetitions=${this.savedPlan.repetitions}`);
     if (this.wearableMode) {
-      this.wearableTab = 1;
+      this.wearableRoute = 'train';
+    } else {
+      this.page = 'train';
     }
-    this.page = 'train'; this.phase = 'ready'; this.remaining = 3; this.repetition = 0; this.trainingSet = Math.min(this.savedPlan.setsPerDay, this.today().completedSets + 1); this.finishedSets = this.today().completedSets; this.paused = false; this.countdownScale = 1; this.breathingScale = 1; this.breathingOffsetX = 0; this.breathingOffsetY = 0; this.breathingPhase = 'ready'; this.trainStartedAt = Date.now(); this.trainingHapticApiLogged = false; this.persistSession(); this.speakForSet('ready'); this.startTimer(); this.startSystemSession();
+    this.phase = 'ready'; this.remaining = 3; this.repetition = 0; this.trainingSet = Math.min(this.savedPlan.setsPerDay, this.today().completedSets + 1); this.finishedSets = this.today().completedSets; this.paused = false; this.countdownScale = 1; this.breathingScale = 1; this.breathingOffsetX = 0; this.breathingOffsetY = 0; this.breathingPhase = 'ready'; this.trainStartedAt = Date.now(); this.trainingHapticApiLogged = false; this.persistSession(); this.speakForSet('ready'); this.startTimer(); this.startSystemSession();
   }
   private startTimer(): void {
     this.stopTimer();
@@ -847,7 +854,36 @@ struct Index {
       console.info(`[TrainingTrace] resumed: phase=${this.phase}, remaining=${this.remaining}, repetition=${this.repetition}/${this.savedPlan.repetitions}`);
     }
   }
-  private end(): void { this.stopConfirming = false; this.stopTimer(); VoiceService.stop(); this.model.activeTraining = undefined; this.save(); this.stopSystemSession(); this.phase = 'ready'; this.page = 'home'; if (this.wearableMode) { this.wearableTab = 1; } }
+  private end(): void { this.stopConfirming = false; this.stopTimer(); VoiceService.stop(); this.model.activeTraining = undefined; this.save(); this.stopSystemSession(); this.phase = 'ready'; if (this.wearableMode) { this.wearableRoute = 'home'; } else { this.page = 'home'; } }
+
+  private async finishCompletedTraining(): Promise<void> {
+    this.stopConfirming = false;
+    this.stopTimer();
+    VoiceService.stop();
+    this.model.activeTraining = undefined;
+    try {
+      await this.save();
+    } catch (error) {
+      console.error(`Training completion save failed: ${JSON.stringify(error)}`);
+    }
+    this.stopSystemSession();
+    this.phase = 'ready';
+    const context: common.UIAbilityContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    try {
+      await context.terminateSelf();
+    } catch (error) {
+      console.error(`Training completion exit failed: ${JSON.stringify(error)}`);
+      if (this.wearableMode) {
+        this.wearableRoute = 'home';
+      } else {
+        this.page = 'home';
+      }
+    }
+  }
+
+  private isTrainingRoute(): boolean {
+    return this.wearableMode ? this.wearableRoute === 'train' : this.page === 'train';
+  }
 
   private systemState(): SystemTrainingState {
     return { phase: this.phase, remaining: this.remaining, repetition: this.repetition, repetitions: this.savedPlan.repetitions, trainingSet: this.trainingSet, setsPerDay: this.savedPlan.setsPerDay, paused: this.paused, wearable: this.wearableMode };
@@ -856,7 +892,7 @@ struct Index {
   private handleLiveViewCommand(command: LiveViewCommand): void {
     console.info(`[TrainingTrace] Live View command received=${command}, page=${this.page}, phase=${this.phase}, active=${this.model.activeTraining !== undefined && this.model.activeTraining.active}, paused=${this.paused}`);
     if (command === 'togglePause') {
-      if (this.page === 'train' && this.model.activeTraining !== undefined && this.model.activeTraining.active) {
+      if (this.isTrainingRoute() && this.model.activeTraining !== undefined && this.model.activeTraining.active) {
         this.togglePause();
       } else {
         console.info(`[TrainingTrace] togglePause ignored: page=${this.page}, hasActive=${this.model.activeTraining !== undefined && this.model.activeTraining.active}`);
@@ -866,12 +902,8 @@ struct Index {
     // The completion card is ended with a deliberate tap instead of being
     // dismissed silently. Reuse the same actions as the in-app completion
     // button so progress is recorded exactly once.
-    if (command === 'completeAction' && this.page === 'train' && this.phase === 'complete') {
-      if (this.finishedSets >= this.savedPlan.setsPerDay) {
-        this.end();
-      } else {
-        this.start();
-      }
+    if (command === 'completeAction' && this.isTrainingRoute() && this.phase === 'complete') {
+      this.finishCompletedTraining();
     } else if (command === 'completeAction') {
       console.info(`[TrainingTrace] completeAction ignored: page=${this.page}, phase=${this.phase}`);
     }
@@ -1190,36 +1222,12 @@ struct Index {
       }
     }
   }
-  /**
-   * Wearable-only reminder editing. The watch does not open the phone time
-   * picker; it sends a normalized HH:mm value from its large +/- controls.
-   */
-  private async setReminderTimeFromWearable(index: number, value: string): Promise<void> {
-    if (index < 0 || index >= this.reminderTimes.length || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value)) {
+  private setReminderTimeFromWearable(index: number, value: string): void {
+    if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value)) {
       return;
     }
-    for (let itemIndex: number = 0; itemIndex < this.reminderTimes.length; itemIndex++) {
-      if (itemIndex !== index && this.reminderTimes[itemIndex] === value) {
-        this.toast = this.text('reminderDuplicate');
-        setTimeout(() => this.toast = '', 1600);
-        return;
-      }
-    }
-    const next: Array<string> = this.reminderTimes.slice();
-    next[index] = value;
-    this.reminderTimes = this.normalizeReminderTimes(next);
-    await this.save();
-    if (this.remindersEnabled) {
-      const context: common.UIAbilityContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
-      const result: ReminderApplyResult = await ReminderService.apply(context, this.model.reminders);
-      if (!result.success) {
-        this.reminderError = this.reminderErrorText(result.errorCode);
-        this.toast = this.reminderErrorText(result.errorCode);
-        setTimeout(() => this.toast = '', 2600);
-      } else {
-        this.reminderError = '';
-      }
-    }
+    const parts: Array<string> = value.split(':');
+    this.commitReminderTime(index, Number(parts[0]), Number(parts[1]));
   }
   private async removeReminderTime(index: number): Promise<void> { if (this.reminderTimes.length <= 1 || index < 0 || index >= this.reminderTimes.length) { return; } this.reminderTimes = this.reminderTimes.filter((_item: string, itemIndex: number) => itemIndex !== index); await this.save(); if (this.remindersEnabled) { const context: common.UIAbilityContext = this.getUIContext().getHostContext() as common.UIAbilityContext; const result: ReminderApplyResult = await ReminderService.apply(context, this.model.reminders); if (!result.success) { this.reminderError = this.reminderErrorText(result.errorCode); this.toast = this.reminderErrorText(result.errorCode); setTimeout(() => this.toast = '', 2600); } else { this.reminderError = ''; } } }
   private async addReminderTime(): Promise<void> {
@@ -1228,18 +1236,22 @@ struct Index {
     }
     const addedTime: string = this.nextAvailableReminderTime();
     this.reminderTimes = this.normalizeReminderTimes(this.reminderTimes.concat([addedTime]));
-    await this.save();
     const editIndex: number = this.reminderTimes.indexOf(addedTime);
     if (editIndex >= 0) {
       this.editReminderTime(editIndex);
     }
+    await this.save();
   }
-  private async addReminderTimeForWearable(): Promise<void> {
+  private async addReminderTimeForWearable(onCreated?: (index: number, value: string) => void): Promise<void> {
     if (this.reminderTimes.length >= this.maxReminderCount()) {
       return;
     }
     const addedTime: string = this.nextAvailableReminderTime();
     this.reminderTimes = this.normalizeReminderTimes(this.reminderTimes.concat([addedTime]));
+    const editIndex: number = this.reminderTimes.indexOf(addedTime);
+    if (editIndex >= 0 && onCreated !== undefined) {
+      onCreated(editIndex, addedTime);
+    }
     await this.save();
     if (this.remindersEnabled) {
       const context: common.UIAbilityContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
@@ -1503,14 +1515,14 @@ struct Index {
         .width('100%')
         .padding({ left: 20, right: 20, top: 20, bottom: 8 });
       if (this.phase === 'complete') {
-        Button(this.finishedSets >= this.savedPlan.setsPerDay ? this.text('home') : this.text('start'), { type: ButtonType.Capsule })
+        Button(this.text('done'), { type: ButtonType.Capsule })
           .width('88%')
           .height(54)
           .fontSize(16)
           .fontColor(this.onPrimaryColor())
           .backgroundColor(this.primaryColor())
           .stateEffect(true)
-          .onClick(() => this.finishedSets >= this.savedPlan.setsPerDay ? this.end() : this.start());
+          .onClick(() => this.finishCompletedTraining());
       } else if (this.stopConfirming) {
         // Replace the action row while confirming so the card stays in the
         // same visible area instead of being appended below the scroll
@@ -1946,14 +1958,12 @@ struct Index {
   build() {
     Column() {
       if (this.wearableMode) {
-        if (this.page === 'train') {
+        if (this.isTrainingRoute()) {
           WearableTrainView({
             phase: this.phase,
             remaining: this.remaining,
             repetition: this.visibleRepetition(),
             repetitions: this.savedPlan.repetitions,
-            finishedSets: this.finishedSets,
-            setsPerDay: this.savedPlan.setsPerDay,
             paused: this.paused,
             countdownScale: this.countdownScale,
             breathingScale: this.breathingScale,
@@ -1971,23 +1981,15 @@ struct Index {
             completeLabel: this.text('complete'),
             secondsLabel: this.text('secondsShort'),
             confirmStopLabel: this.text('confirmStop'),
-            homeLabel: this.text('home'),
-            startLabel: this.text('start'),
+            finishLabel: this.text('done'),
             locale: this.locale,
             onTogglePause: () => this.togglePause(),
             onEnd: () => this.end(),
-            onCompleteAction: () => {
-              if (this.finishedSets >= this.savedPlan.setsPerDay) {
-                this.end();
-              } else {
-                this.start();
-              }
-            }
+            onCompleteAction: () => { this.finishCompletedTraining(); }
           });
         } else {
           WearableHomeView({
             locale: this.locale,
-            wearableTab: this.wearableTab,
             primaryColor: this.primaryColor(),
             onPrimaryColor: this.onPrimaryColor(),
             pageBackground: this.pageBackground(),
@@ -2003,12 +2005,9 @@ struct Index {
             reminderTimes: this.reminderTimes,
             maxReminderCount: this.maxReminderCount(),
             onStart: () => this.start(),
-            onChangeTab: (index: number) => this.wearableTab = index,
             onToggleReminders: () => this.toggleReminders(),
-            // The wearable uses its own +/- editor; never open the phone
-            // time-picker dialog from this compact surface.
             onSetReminder: (index: number, value: string) => this.setReminderTimeFromWearable(index, value),
-            onAddReminder: () => this.addReminderTimeForWearable(),
+            onAddReminder: (onCreated: (index: number, value: string) => void) => this.addReminderTimeForWearable(onCreated),
             onRemoveReminder: (index: number) => this.removeReminderTime(index)
           });
         }
@@ -2049,7 +2048,8 @@ struct Index {
           .backgroundColor(this.textColor())
           .borderRadius(18);
       }
-    }.width('100%').height('100%').backgroundColor(this.pageBackground())
+    }.width('100%').height('100%')
+      .backgroundColor(this.wearableMode ? '#00000000' : this.pageBackground())
       .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM]);
   }
 }

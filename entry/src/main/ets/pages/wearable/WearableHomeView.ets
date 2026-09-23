@@ -7,11 +7,11 @@
  * independent from the phone's tabs and makes the data boundary explicit.
  */
 import { WearableReminderView } from './WearableReminderView';
+import { CircleShape } from '@kit.ArkUI';
 
 @Component
 export struct WearableHomeView {
   @Prop locale: string = 'zh';
-  @Prop wearableTab: number = 1;
   @Prop primaryColor: string = '#087F73';
   @Prop onPrimaryColor: string = '#FFFFFF';
   @Prop pageBackground: string = '#F7F9F8';
@@ -27,16 +27,15 @@ export struct WearableHomeView {
   @Prop reminderTimes: Array<string> = [];
   @Prop maxReminderCount: number = 3;
   @State revealOpacity: number = 0;
+  @State currentTab: number = 1;
   // The first frame starts slightly smaller, then continues with a gentle
   // breathing pulse while the start page is visible.
   @State revealScale: number = 0.96;
 
   onStart: () => void = () => {};
-  onChangeTab: (index: number) => void = (_index: number) => {};
   onToggleReminders: () => void = () => {};
-  onEditReminder: (index: number) => void = (_index: number) => {};
   onSetReminder: (index: number, value: string) => void = (_index: number, _value: string) => {};
-  onAddReminder: () => void = () => {};
+  onAddReminder: (onCreated: (index: number, value: string) => void) => void = (_onCreated: (index: number, value: string) => void) => {};
   onRemoveReminder: (index: number) => void = (_index: number) => {};
 
   aboutToAppear(): void {
@@ -88,9 +87,9 @@ export struct WearableHomeView {
   @Builder
   private startPage() {
     Stack({ alignContent: Alignment.Center }) {
-      // Keep the reveal fade separate from the repeating pulse. This avoids
-      // fading the button out on every loop while still giving the start
-      // affordance a visible, low-amplitude breathing animation.
+      // The start surface keeps its existing watch interaction. The list
+      // treatment belongs to reminder settings, while the bottom CTA treatment
+      // belongs only to the training state actions.
       Stack({ alignContent: Alignment.Center }) {
         Button(this.locale === 'en' ? 'Start' : '开始', { type: ButtonType.Circle })
           .width('100%').height('100%').fontSize(28).fontWeight(FontWeight.Bold)
@@ -101,19 +100,18 @@ export struct WearableHomeView {
             iterations: -1, playMode: PlayMode.Alternate })
           .onClick(() => this.onStart());
       }
-        .width('100%').height('100%').opacity(this.revealOpacity)
-        .animation({ duration: 420, curve: Curve.EaseOut });
+        .width('100%').height('100%').opacity(this.revealOpacity);
       // Narrow edge hit targets keep the centre button fully tappable.
       Text('‹')
         .width(44).height(56).fontSize(38).fontColor(this.primaryColor)
         .textAlign(TextAlign.Center)
         .position({ x: '2%', y: '42%' })
-        .onClick(() => this.onChangeTab(0));
+        .onClick(() => this.currentTab = 0);
       Text('›')
         .width(44).height(56).fontSize(38).fontColor(this.primaryColor)
         .textAlign(TextAlign.Center)
         .position({ x: '86%', y: '42%' })
-        .onClick(() => this.onChangeTab(2));
+        .onClick(() => this.currentTab = 2);
     }.width('100%').height('100%');
   }
 
@@ -133,7 +131,7 @@ export struct WearableHomeView {
       maxReminderCount: this.maxReminderCount,
       onToggleReminders: () => this.onToggleReminders(),
       onSetReminder: (index: number, value: string) => this.onSetReminder(index, value),
-      onAddReminder: () => this.onAddReminder(),
+      onAddReminder: (onCreated: (index: number, value: string) => void) => this.onAddReminder(onCreated),
       onRemoveReminder: (index: number) => this.onRemoveReminder(index)
     });
   }
@@ -145,9 +143,12 @@ export struct WearableHomeView {
         Column() { this.startPage(); }.width('100%').height('100%');
         Column() { this.reminderPage(); }.width('100%').height('100%');
       }
-        .index(this.wearableTab).loop(false).indicator(false)
-        .onChange((index: number) => this.onChangeTab(index))
+        .index(this.currentTab).loop(false).indicator(false)
+        .onChange((index: number) => this.currentTab = index)
         .layoutWeight(1).width('100%');
-    }.width('100%').height('100%').backgroundColor(this.pageBackground);
+    }
+      .width('100%').height('100%')
+      .backgroundColor(this.pageBackground)
+      .clipShape(new CircleShape({ width: '100%', height: '100%' }));
   }
 }

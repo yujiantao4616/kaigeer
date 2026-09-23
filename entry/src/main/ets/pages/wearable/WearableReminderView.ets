@@ -1,10 +1,11 @@
+import { CircleShape } from '@kit.ArkUI';
+
 /**
  * Reminder settings designed for the compact wearable surface.
  *
  * This is intentionally not a miniature copy of the phone settings page:
- * one reminder is focused at a time, horizontal arrows switch reminders,
- * and the time is nudged with large, touch-friendly controls instead of a
- * scrolling list or a phone-style time picker dialog.
+ * each saved reminder is shown as a compact list row, and tapping a row
+ * opens a watch-only hour/minute picker layer.
  */
 @Component
 export struct WearableReminderView {
@@ -20,178 +21,168 @@ export struct WearableReminderView {
   @Prop reminderTimes: Array<string> = [];
   @Prop maxReminderCount: number = 3;
 
-  @State selectedIndex: number = 0;
-  @State selectedTime: string = '';
-  @State revealOpacity: number = 0;
-  @State revealScale: number = 0.96;
+  @State editingIndex: number = -1;
+  @State pickerTime: Date = new Date();
+  @State reminderScrollOffset: number = 0;
+  private reminderScroller: Scroller = new Scroller();
 
   onToggleReminders: () => void = () => {};
   onSetReminder: (index: number, value: string) => void = (_index: number, _value: string) => {};
-  onAddReminder: () => void = () => {};
+  onAddReminder: (onCreated: (index: number, value: string) => void) => void = (_onCreated: (index: number, value: string) => void) => {};
   onRemoveReminder: (index: number) => void = (_index: number) => {};
 
   aboutToAppear(): void {
-    this.selectedIndex = 0;
-    this.selectedTime = this.reminderTimes.length > 0 ? this.reminderTimes[0] : '';
-    this.revealOpacity = 0;
-    this.revealScale = 0.96;
-    setTimeout(() => {
-      this.revealOpacity = 1;
-      this.revealScale = 1;
-    }, 80);
+    this.reminderScrollOffset = 0;
+    setTimeout((): void => {
+      this.reminderScroller.scrollTo({ xOffset: 0, yOffset: 0 });
+    }, 0);
   }
 
-  private currentIndex(): number {
-    if (this.reminderTimes.length === 0) {
-      return 0;
-    }
-    if (this.selectedTime !== '') {
-      const matchingIndex: number = this.reminderTimes.indexOf(this.selectedTime);
-      if (matchingIndex >= 0) {
-        return matchingIndex;
-      }
-    }
-    return Math.min(this.selectedIndex, this.reminderTimes.length - 1);
-  }
-
-  private currentTime(): string {
-    const index: number = this.currentIndex();
-    return index >= 0 && index < this.reminderTimes.length ? this.reminderTimes[index] : '--:--';
-  }
-
-  private selectReminder(offset: number): void {
-    if (this.reminderTimes.length === 0) {
+  private openPicker(index: number, initialTime?: string): void {
+    if (index < 0 || index >= this.reminderTimes.length) {
       return;
     }
-    const length: number = this.reminderTimes.length;
-    const nextIndex: number = (this.currentIndex() + offset + length) % length;
-    this.selectedIndex = nextIndex;
-    this.selectedTime = this.reminderTimes[nextIndex];
-  }
-
-  private shiftTime(value: string, deltaMinutes: number): string {
+    const value: string = initialTime === undefined ? this.reminderTimes[index] : initialTime;
     const parts: Array<string> = value.split(':');
-    let minutes: number = Number(parts[0]) * 60 + Number(parts[1]) + deltaMinutes;
-    while (minutes < 0) {
-      minutes += 24 * 60;
-    }
-    minutes = minutes % (24 * 60);
-    const hour: number = Math.floor(minutes / 60);
-    const minute: number = minutes % 60;
-    return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+    const next: Date = new Date();
+    next.setHours(Number(parts[0]), Number(parts[1]), 0, 0);
+    this.pickerTime = next;
+    this.editingIndex = index;
   }
 
-  private adjustTime(deltaMinutes: number): void {
-    if (this.reminderTimes.length === 0) {
-      return;
-    }
-    const index: number = this.currentIndex();
-    const nextTime: string = this.shiftTime(this.currentTime(), deltaMinutes);
-    for (let itemIndex: number = 0; itemIndex < this.reminderTimes.length; itemIndex++) {
-      if (itemIndex !== index && this.reminderTimes[itemIndex] === nextTime) {
-        return;
-      }
-    }
-    this.selectedIndex = index;
-    this.selectedTime = nextTime;
-    this.onSetReminder(index, nextTime);
+  private pickerValue(): string {
+    return `${String(this.pickerTime.getHours()).padStart(2, '0')}:${String(this.pickerTime.getMinutes()).padStart(2, '0')}`;
   }
 
-  private removeCurrent(): void {
+  private closePicker(save: boolean): void {
+    if (save && this.editingIndex >= 0) {
+      this.onSetReminder(this.editingIndex, this.pickerValue());
+    }
+    this.editingIndex = -1;
+  }
+
+  private handleAddReminder(): void {
+    this.onAddReminder((index: number, value: string) => this.openPicker(index, value));
+  }
+
+  /**
+   * Cards near the visual centre of the round screen are larger. The scale is
+   * derived from the accumulated scroll delta, so the list feels like a
+   * wearable carousel instead of a phone list squeezed into a circle.
+   */
+  private reminderCardScale(index: number): number {
+    const rowHeight: number = this.reminderRowHeight();
+    const itemCenter: number = rowHeight / 2 + index * (rowHeight + 6) - this.reminderScrollOffset;
+    const distance: number = Math.abs(itemCenter - 105);
+    return Math.max(0.92, Math.min(1.02, 1.02 - distance / 300));
+  }
+
+  /**
+   * Use the available round-screen list area instead of leaving large phone
+   * style gaps. With up to three alarms each row gets a watch-sized target.
+   */
+  private reminderRowHeight(): number {
     if (this.reminderTimes.length <= 1) {
-      return;
+      return 44;
     }
-    const index: number = this.currentIndex();
-    const nextIndex: number = index < this.reminderTimes.length - 1 ? index + 1 : index - 1;
-    this.selectedIndex = nextIndex;
-    this.selectedTime = this.reminderTimes[nextIndex];
-    this.onRemoveReminder(index);
+    if (this.reminderTimes.length === 2) {
+      return 38;
+    }
+    return 32;
   }
 
-  @Builder
-  private reminderToggle() {
-    Button(this.remindersEnabled ? 'ON' : 'OFF', { type: ButtonType.Capsule })
-      .width(48).height(26).fontSize(10)
-      .fontColor(this.remindersEnabled ? this.onPrimaryColor : this.mutedColor)
-      .backgroundColor(this.remindersEnabled ? this.primaryColor : this.pageBorder)
-      .onClick(() => this.onToggleReminders());
-  }
-
-  @Builder
-  private adjustButton(label: string, deltaMinutes: number) {
-    Button(label, { type: ButtonType.Capsule })
-      .width(78).height(32).fontSize(11)
-      .fontColor(this.textColor).backgroundColor(this.accentColor)
-      .onClick(() => this.adjustTime(deltaMinutes));
+  private updateReminderScroll(yOffset: number): void {
+    // Scroll.onDidScroll reports the current offset, not a delta.
+    this.reminderScrollOffset = Math.max(0, Math.min(112, yOffset));
   }
 
   build() {
-    Column({ space: 6 }) {
-      Row() {
-        Text(this.locale === 'en' ? 'Reminders' : '训练提醒')
-          .fontSize(16).fontWeight(FontWeight.Bold).fontColor(this.textColor)
-          .layoutWeight(1);
-        this.reminderToggle();
-      }.width('100%');
-
-      Text(this.locale === 'en' ? 'One reminder at a time' : '一次只调整一个提醒')
-        .fontSize(9).fontColor(this.mutedColor);
-
-      Stack({ alignContent: Alignment.Center }) {
-        Circle().width(190).height(190).fill(this.accentColor);
-        Column({ space: 2 }) {
-          Text(this.currentTime()).fontSize(42).fontWeight(FontWeight.Bold).fontColor(this.primaryColor);
-          Text(this.reminderTimes.length > 0
-            ? `${this.currentIndex() + 1} / ${this.reminderTimes.length}`
-            : '0 / 0').fontSize(11).fontColor(this.mutedColor);
-          Text(this.locale === 'en' ? 'daily' : '每天').fontSize(10).fontColor(this.mutedColor);
+    Stack({ alignContent: Alignment.Center }) {
+      Column() {
+        Scroll(this.reminderScroller) {
+          Column({ space: 6 }) {
+            ForEach(this.reminderTimes, (time: string, index: number) => {
+              Row({ space: 6 }) {
+                Button(time, { type: ButtonType.Capsule })
+                  .layoutWeight(1).height('100%').fontSize(20)
+                  .fontWeight(FontWeight.Bold).fontColor(this.primaryColor)
+                  .backgroundColor(this.accentColor)
+                  .onClick(() => this.openPicker(index));
+                if (this.reminderTimes.length > 1) {
+                  Button('×', { type: ButtonType.Circle })
+                    .width('14%').height('100%').fontSize(18)
+                    .fontWeight(FontWeight.Medium)
+                    .fontColor(this.textColor).backgroundColor(this.pageBackground)
+                    .border({ width: 1, color: this.pageBorder })
+                    .onClick(() => this.onRemoveReminder(index));
+                }
+              }
+                .width('88%').height(this.reminderRowHeight())
+                .scale({ x: this.reminderCardScale(index), y: this.reminderCardScale(index) });
+            }, (time: string) => time);
+            if (this.reminderTimes.length < this.maxReminderCount) {
+              Button('+', { type: ButtonType.Circle })
+                .width(48).height(48).fontSize(28).fontWeight(FontWeight.Bold)
+                .fontColor(this.onPrimaryColor).backgroundColor(this.primaryColor)
+                .stateEffect(true)
+                .onClick(() => this.handleAddReminder());
+            }
+          }
+            .width('100%')
+            .height('100%')
+            .padding({ top: 12, bottom: 12 })
+            .alignItems(HorizontalAlign.Center)
+            .justifyContent(FlexAlign.Center);
         }
+          .width('100%').height('100%')
+          .scrollable(ScrollDirection.Vertical)
+          .scrollBar(BarState.Off)
+          .edgeEffect(EdgeEffect.None)
+          .onDidScroll((_xOffset: number, yOffset: number, _state: ScrollState) => this.updateReminderScroll(yOffset));
       }
-        .width('100%').height(194)
-        .opacity(this.revealOpacity).scale({ x: this.revealScale, y: this.revealScale })
-        .animation({ duration: 380, curve: Curve.EaseOut });
+        .width('100%').height('100%')
+        .alignItems(HorizontalAlign.Center)
+        .backgroundColor(this.pageBackground);
 
-      Row({ space: 26 }) {
-        Text('‹').width(42).height(36).fontSize(34).fontColor(this.primaryColor)
-          .textAlign(TextAlign.Center).onClick(() => this.selectReminder(-1));
-        Text(this.locale === 'en' ? 'Switch reminder' : '切换提醒')
-          .fontSize(10).fontColor(this.mutedColor);
-        Text('›').width(42).height(36).fontSize(34).fontColor(this.primaryColor)
-          .textAlign(TextAlign.Center).onClick(() => this.selectReminder(1));
-      }.justifyContent(FlexAlign.Center).width('100%');
-
-      Row({ space: 8 }) {
-        this.adjustButton(this.locale === 'en' ? '−15 min' : '−15 分', -15);
-        this.adjustButton(this.locale === 'en' ? '+15 min' : '+15 分', 15);
-      }.justifyContent(FlexAlign.Center).width('100%');
-      Row({ space: 8 }) {
-        this.adjustButton(this.locale === 'en' ? '−1 min' : '−1 分', -1);
-        this.adjustButton(this.locale === 'en' ? '+1 min' : '+1 分', 1);
-      }.justifyContent(FlexAlign.Center).width('100%');
-
-      Row({ space: 8 }) {
-        if (this.reminderTimes.length > 1) {
-          Button(this.locale === 'en' ? 'Remove' : '删除当前', { type: ButtonType.Capsule })
-            .width(92).height(30).fontSize(10)
-            .fontColor(this.primaryColor).backgroundColor(this.pageBackground)
-            .border({ width: 1, color: this.pageBorder })
-            .onClick(() => this.removeCurrent());
+      if (this.editingIndex >= 0) {
+        Column({ space: 10 }) {
+          TimePicker({ selected: this.pickerTime })
+            .useMilitaryTime(true)
+            // Keep the native wearable wheel, but override its default dark
+            // surface so it belongs to the same light/teal watch theme as the
+            // reminder list instead of appearing as a black rectangle.
+            .disappearTextStyle({ color: this.mutedColor, font: { size: 22, weight: FontWeight.Medium } })
+            .textStyle({ color: this.mutedColor, font: { size: 26, weight: FontWeight.Medium } })
+            .selectedTextStyle({ color: this.primaryColor, font: { size: 32, weight: FontWeight.Bold } })
+            .backgroundColor(this.accentColor)
+            .borderRadius(28)
+            .width('86%').height('62%')
+            .onChange((value: TimePickerResult) => {
+              const next: Date = new Date(this.pickerTime.getTime());
+              next.setHours(value.hour, value.minute, 0, 0);
+              this.pickerTime = next;
+            });
+          Row({ space: 8 }) {
+            Button('取消', { type: ButtonType.Capsule })
+              .layoutWeight(1).height('100%').fontSize(12)
+              .fontColor(this.primaryColor).backgroundColor(this.pageBackground)
+              .border({ width: 1, color: this.pageBorder })
+              .onClick(() => this.closePicker(false));
+            Button('确定', { type: ButtonType.Capsule })
+              .layoutWeight(1).height('100%').fontSize(12)
+              .fontColor(this.onPrimaryColor).backgroundColor(this.primaryColor)
+              .onClick(() => this.closePicker(true));
+          }.width('78%').height('14%');
         }
-        if (this.reminderTimes.length < this.maxReminderCount) {
-          Button(this.locale === 'en' ? '+ Add' : '+ 添加', { type: ButtonType.Capsule })
-            .width(92).height(30).fontSize(10)
-            .fontColor(this.onPrimaryColor).backgroundColor(this.primaryColor)
-            .onClick(() => this.onAddReminder());
-        }
-      }.justifyContent(FlexAlign.Center).width('100%');
-
-      Text(this.locale === 'en'
-        ? 'Use the large controls to adjust time. Swipe left to return.'
-        : '用大按钮调整时间；向左滑返回开始')
-        .fontSize(8).fontColor(this.mutedColor).maxLines(2).textAlign(TextAlign.Center)
-        .width('94%');
+          .width('100%').height('100%')
+          .alignItems(HorizontalAlign.Center)
+          .justifyContent(FlexAlign.Center)
+          .backgroundColor(this.pageBackground)
+          .zIndex(20);
+      }
     }
-      .width('100%').height('100%').padding({ left: 10, right: 10, top: 8, bottom: 8 })
-      .backgroundColor(this.pageBackground);
+      .width('100%').height('100%')
+      .backgroundColor(this.pageBackground)
+      .clipShape(new CircleShape({ width: '100%', height: '100%' }));
   }
 }

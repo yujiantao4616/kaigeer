@@ -1,0 +1,9 @@
+# Hvigor caches, logs, reports, and generated metadata
+/.hvigor/
+
+# HarmonyOS build outputs and intermediates
+**/build/
+/outputs/*.hap
+
+# DevEco Studio local project caches
+/.idea/.deveco/
